@@ -40,4 +40,4 @@ Fixed locations:
 
 ## Lab notes: what not to do
 
-- 2026-10-25: (empty — first entry goes here)
+- 2026-10-25: Bump `version` in plugin.json with every change meant to reach installs. The cost-line removal shipped under the same 0.2.0, so installs kept the old copy saved for that version.
