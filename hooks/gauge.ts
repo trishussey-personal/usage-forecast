@@ -23,6 +23,8 @@ export type Meter = {
   level: Level
   // The window reset after the reading: the figure is old until the next turn.
   isReset: boolean
+  // No figure yet: drawn dim, without a level word.
+  isPending?: boolean
   // "76k / 200k", or "resets in 2h 14m".
   detail: string
   // "~9 turns left", "on pace for ~58% at reset", "runs out in 1h 10m ...".
@@ -186,7 +188,24 @@ function limitMeter(limit: UsageForecastLimit, now: number, t: Thresholds): Mete
 
 const ORDER = ['context', 'five_hour', 'seven_day']
 
+// No context tokens yet (a new session, or just after /clear): an empty,
+// dim context gauge says so, rather than the gauge looking missing.
+function pendingContext(): Meter {
+  return {
+    id: 'context',
+    label: 'Context',
+    short: 'Ctx',
+    percent: 0,
+    level: 'ok',
+    isReset: false,
+    isPending: true,
+    detail: 'Fills after the next reply',
+  }
+}
+
 // Every gauge the reading has a figure for, context first, then the windows.
+// Context with no tokens yet is drawn pending; with tokens but no reported
+// window there is no percentage to draw, so it is left out.
 export function meters(
   reading: UsageForecastReading,
   samples: UsageForecastSample[],
@@ -195,6 +214,7 @@ export function meters(
 ): Meter[] {
   const list: Meter[] = []
   if (reading.context) list.push(contextMeter(reading.context, samples, t))
+  else if (reading.contextPending) list.push(pendingContext())
   for (const limit of reading.limits) list.push(limitMeter(limit, now, t))
   const rank = (id: string) => (ORDER.includes(id) ? ORDER.indexOf(id) : ORDER.length)
   return list.sort((a, b) => rank(a.id) - rank(b.id))

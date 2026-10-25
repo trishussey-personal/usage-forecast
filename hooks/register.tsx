@@ -34,7 +34,7 @@ const STALE_MS = 5 * 60_000
 // Change a tag when that value's fields change: it declines what an earlier
 // version stored, which outlives a reload.
 const reading = atom({ plugin: 'usage-forecast', key: 'reading' } as const, null, {
-  shape: 'reading-1',
+  shape: 'reading-2',
 })
 const samples = atom({ plugin: 'usage-forecast', key: 'samples' } as const, [], {
   shape: 'samples-1',
@@ -56,6 +56,7 @@ function toReading(usage: Pick<SessionUsage, 'context' | 'rateLimits' | 'cost'>,
             percent: Math.round(context.percent ?? (context.tokens / context.window) * 100),
           }
         : null,
+    ...(context.tokens ? {} : { contextPending: true }),
     limits: usage.rateLimits.map(({ kind, percentUsed, resetsAt }) => ({
       kind,
       percentUsed,
@@ -163,9 +164,13 @@ export const register: Register = (on, options) => {
           <Box key={meter.id} flexDirection="column" marginBottom={1}>
             <Box flexDirection="row" justifyContent="space-between">
               <Text weight="bold">{meter.label}</Text>
-              <Text color={COLORS[meter.level]} weight="bold" tabular dimColor={meter.isReset}>
-                {meter.percent}% {WORDS[meter.level]}
-              </Text>
+              {meter.isPending ? (
+                <Text dimColor tabular>{meter.percent}%</Text>
+              ) : (
+                <Text color={COLORS[meter.level]} weight="bold" tabular dimColor={meter.isReset}>
+                  {meter.percent}% {WORDS[meter.level]}
+                </Text>
+              )}
             </Box>
             {gauge(meter)}
             {meter.detail !== '' && <Text dimColor>{meter.detail}</Text>}
@@ -213,7 +218,12 @@ export const register: Register = (on, options) => {
           <Text>
             <Text dimColor>{isWide ? meter.label : meter.short} </Text>
             {gauge(meter)}
-            <Text color={COLORS[meter.level]} weight="bold" tabular dimColor={meter.isReset}>
+            <Text
+              color={meter.isPending ? undefined : COLORS[meter.level]}
+              weight={meter.isPending ? undefined : 'bold'}
+              tabular
+              dimColor={meter.isReset || meter.isPending}
+            >
               {' '}
               {meter.percent}%
             </Text>
