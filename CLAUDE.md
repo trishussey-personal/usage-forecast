@@ -44,3 +44,4 @@ Fixed locations:
 - 2026-10-25: Bump `version` in plugin.json with every change meant to reach installs. The cost-line removal shipped under the same 0.2.0, so installs kept the old copy saved for that version.
 - 2026-10-25: Don't run `claude plugin marketplace update` / `claude plugin update` from Bash: the sandbox denies writes to ~/.claude/plugins. Hand the user both commands instead.
 - 2026-10-25: Auto mode blocks `git branch -d` and `git push --delete`, even for branches merged into main. Give the user the delete commands instead.
+- 2026-10-25: When parsing a `userConfig` value, accept only a real number or a non-blank numeric string. `Number()` turns `'  '`, `false` and `[50]` into numbers, so a plain `Number(x)` with a NaN check let a blank setting through as 0.
