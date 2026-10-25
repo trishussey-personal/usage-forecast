@@ -31,6 +31,7 @@ Fixed locations:
 - Whenever this file changes, `AGENTS.md` must match it (symlink, or re-sync). In a Claude Code plugin repo (`.claude-plugin/plugin.json` exists), keep it a plain copy, not a symlink: the plugin directory validator skips symlinks.
 - Before calling a change done, run `claude plugin validate .` and `claude plugin test .`.
 - When you add or change a setting in `plugin.json` `userConfig`, update the Settings table in `README.md` too.
+- When the user sees behavior the code no longer has, compare ~/.claude/plugins/cache/usage-forecast/usage-forecast/<version>/ with the repo before touching any code. The usual cause is an installed copy saved under an unchanged version number.
 
 ## Capabilities
 
@@ -41,3 +42,5 @@ Fixed locations:
 ## Lab notes: what not to do
 
 - 2026-10-25: Bump `version` in plugin.json with every change meant to reach installs. The cost-line removal shipped under the same 0.2.0, so installs kept the old copy saved for that version.
+- 2026-10-25: Don't run `claude plugin marketplace update` / `claude plugin update` from Bash: the sandbox denies writes to ~/.claude/plugins. Hand the user both commands instead.
+- 2026-10-25: Auto mode blocks `git branch -d` and `git push --delete`, even for branches merged into main. Give the user the delete commands instead.
