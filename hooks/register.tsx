@@ -143,10 +143,12 @@ export const register: Register = (on, options) => {
 
     const list = meters(value, await read($, samples), now, thresholds)
     const count = e.props.bodyColumns >= 34 ? 20 : 10
+    // mono: desktop, VS Code and mobile draw text in a proportional face, and
+    // the boxes only line up gauge to gauge at one width each.
     const gauge = (meter: Meter) => {
       const { filled, empty } = boxes(meter.percent, count, style)
       return (
-        <Text>
+        <Text mono>
           <Text color={COLORS[meter.level]} dimColor={meter.isReset}>{filled}</Text>
           <Text dimColor>{empty}</Text>
         </Text>
@@ -200,8 +202,8 @@ export const register: Register = (on, options) => {
     const gauge = (meter: Meter) => {
       const { filled, empty } = boxes(meter.percent, count, style)
       return [
-        <Text color={COLORS[meter.level]} dimColor={meter.isReset}>{filled}</Text>,
-        <Text dimColor>{empty}</Text>,
+        <Text mono color={COLORS[meter.level]} dimColor={meter.isReset}>{filled}</Text>,
+        <Text mono dimColor>{empty}</Text>,
       ]
     }
 
@@ -211,7 +213,7 @@ export const register: Register = (on, options) => {
           <Text>
             <Text dimColor>{isWide ? meter.label : meter.short} </Text>
             {gauge(meter)}
-            <Text color={COLORS[meter.level]} weight="bold" dimColor={meter.isReset}>
+            <Text color={COLORS[meter.level]} weight="bold" tabular dimColor={meter.isReset}>
               {' '}
               {meter.percent}%
             </Text>
