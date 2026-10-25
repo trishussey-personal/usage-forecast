@@ -1,6 +1,6 @@
 {
   "name": "usage-forecast",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Gauges for context, 5-hour and weekly usage: boxes that fill, a percentage, green/yellow/red, and a pace forecast.",
   "author": {
     "name": "Tris Hussey"
