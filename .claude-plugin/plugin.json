@@ -1,0 +1,58 @@
+{
+  "name": "usage-forecast",
+  "version": "0.1.0",
+  "description": "Gauges for context, 5-hour and weekly usage: boxes that fill, a percentage, green/yellow/red, and a pace forecast.",
+  "author": {
+    "name": "Tris Hussey"
+  },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "contextWarnAt": {
+      "type": "number",
+      "title": "Context: yellow at (%)",
+      "description": "Context window fill that turns the gauge yellow.",
+      "default": 60
+    },
+    "contextDangerAt": {
+      "type": "number",
+      "title": "Context: red at (%)",
+      "description": "Context window fill that turns the gauge red.",
+      "default": 80
+    },
+    "limitWarnAt": {
+      "type": "number",
+      "title": "Limits: yellow at (%)",
+      "description": "5-hour or weekly use that turns the gauge yellow.",
+      "default": 70
+    },
+    "limitDangerAt": {
+      "type": "number",
+      "title": "Limits: red at (%)",
+      "description": "5-hour or weekly use that turns the gauge red.",
+      "default": 90
+    },
+    "glyphs": {
+      "type": "string",
+      "title": "Box style",
+      "description": "boxes draws ■□, blocks draws █░ (pick blocks if ■ looks off in your font).",
+      "options": [
+        "boxes",
+        "blocks"
+      ],
+      "default": "boxes"
+    },
+    "band": {
+      "type": "boolean",
+      "title": "One-line band above the prompt",
+      "description": "Also draw a compact one-line gauge row above the prompt (terminal and desktop).",
+      "default": true
+    },
+    "alerts": {
+      "type": "boolean",
+      "title": "Toast when a gauge turns yellow or red",
+      "description": "Show a one-line toast once per window when a gauge crosses into yellow or red.",
+      "default": true
+    }
+  }
+}
