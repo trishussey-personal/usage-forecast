@@ -78,6 +78,8 @@ All in `/config`, under the plugin:
 | One-line band above the prompt | on |
 | Toasts | on |
 
+Thresholds are kept between 0 and 100, a value that isn't a number falls back to the default, and a yellow line set above red drops to red's.
+
 Run `/gauges` to reopen the pane after closing it.
 
 ## Limits

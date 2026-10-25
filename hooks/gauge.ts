@@ -29,7 +29,12 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
 export function thresholdsFrom(options: Record<string, unknown>): Thresholds {
   const percent = (key: keyof Thresholds) => {
     const raw = options[key]
-    const n = raw === undefined || raw === null || raw === '' ? NaN : Number(raw)
+    const n =
+      typeof raw === 'number'
+        ? raw
+        : typeof raw === 'string' && raw.trim() !== ''
+          ? Number(raw)
+          : NaN
     return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : DEFAULT_THRESHOLDS[key]
   }
   const contextDangerAt = percent('contextDangerAt')

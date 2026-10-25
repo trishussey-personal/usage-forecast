@@ -330,6 +330,10 @@ test('a narrow pane keeps only the sparkline bars that fit', async ($, on) => {
 test('threshold settings that make no sense fall back or are bounded', async () => {
   expect(thresholdsFrom({})).toEqual(DEFAULT_THRESHOLDS)
   expect(thresholdsFrom({ contextWarnAt: 'abc', limitDangerAt: '' })).toEqual(DEFAULT_THRESHOLDS)
+  expect(thresholdsFrom({ contextDangerAt: '  ', limitWarnAt: true, limitDangerAt: [50] })).toEqual(
+    DEFAULT_THRESHOLDS,
+  )
+  expect(thresholdsFrom({ contextWarnAt: -5 }).contextWarnAt).toBe(0)
   expect(thresholdsFrom({ contextWarnAt: '50', contextDangerAt: 150 })).toMatchObject({
     contextWarnAt: 50,
     contextDangerAt: 100,

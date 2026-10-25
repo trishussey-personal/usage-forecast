@@ -26,7 +26,6 @@ import {
   thresholdsFrom,
   type GlyphStyle,
   type Meter,
-  type Thresholds,
 } from './gauge'
 
 const PANE = 'usage-forecast'
@@ -91,7 +90,7 @@ function toReading(
 }
 
 export const register: Register = (on, options) => {
-  const thresholds: Thresholds = thresholdsFrom(options)
+  const thresholds = thresholdsFrom(options)
   const style: GlyphStyle = options.glyphs === 'blocks' ? 'blocks' : 'boxes'
   const hasBand = options.band !== false
   const hasAlerts = options.alerts !== false
