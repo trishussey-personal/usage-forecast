@@ -9,6 +9,8 @@ export type UsageForecastLimit = {
 export type UsageForecastReading = {
   at: number
   context: { tokens: number; window: number; percent: number } | null
+  // No context tokens counted yet: the gauge is drawn empty until the next reply.
+  contextPending?: boolean
   limits: UsageForecastLimit[]
   costUsd?: number
 }

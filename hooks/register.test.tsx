@@ -120,6 +120,51 @@ test('a window that has reset reads 0% until the next turn', async ($, on) => {
   await ui.unmount()
 })
 
+test('with no context tokens yet the context gauge is empty, dim, and says why', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  const calm = [{ kind: 'five_hour', percentUsed: 3, resetsAt: new Date(NOW + 4 * HOUR).toISOString() }]
+  await $.session.measure({
+    ...MEASURE,
+    context: { tokens: 0, window: 200_000, percent: 0 },
+    rateLimits: calm,
+    changed: ['rateLimits'],
+  })
+
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await pane.find({ type: 'Text', text: /^0%/ }))?.text).toBe('0%')
+  expect(await pane.find({ type: 'Text', text: /Fills after the next reply/ })).toBeDefined()
+  await pane.unmount()
+
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await band.find({ type: 'Text', text: /Context/ })).toBeDefined()
+  await band.unmount()
+  expect(toasts.length).toBe(0)
+
+  // The first reply brings real tokens: the placeholder gives way.
+  await $.session.measure({ ...MEASURE, rateLimits: calm, changed: ['context'] })
+  const after = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await after.find({ type: 'Text', text: /Fills after/ })).toBeUndefined()
+  expect(await after.find({ type: 'Text', text: /130k \/ 200k/ })).toBeDefined()
+  await after.unmount()
+})
+
+test('tokens without a reported window draw no context gauge', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  on('ui.toast', () => ({ value: undefined }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  await $.session.measure({ ...MEASURE, context: { tokens: 50_000, window: 0, percent: 0 } })
+
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await pane.find({ type: 'Text', text: /Context|Fills after/ })).toBeUndefined()
+  await pane.unmount()
+})
+
 test('before any reading the pane says so', async $ => {
   const ui = await $.ui.mount({ ...PANE, surface: 'mobile' })
   expect(await ui.find({ type: 'Text', text: /No usage reading yet/ })).toBeDefined()
