@@ -16,6 +16,32 @@ export type Thresholds = {
   limitDangerAt: number
 }
 
+export const DEFAULT_THRESHOLDS: Thresholds = {
+  contextWarnAt: 60,
+  contextDangerAt: 80,
+  limitWarnAt: 70,
+  limitDangerAt: 90,
+}
+
+// Settings as typed in /config: a value that is not a number falls back to
+// its default, every value is kept within 0-100, and yellow never sits above
+// red, so a slip can't silence the colors.
+export function thresholdsFrom(options: Record<string, unknown>): Thresholds {
+  const percent = (key: keyof Thresholds) => {
+    const raw = options[key]
+    const n = raw === undefined || raw === null || raw === '' ? NaN : Number(raw)
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : DEFAULT_THRESHOLDS[key]
+  }
+  const contextDangerAt = percent('contextDangerAt')
+  const limitDangerAt = percent('limitDangerAt')
+  return {
+    contextWarnAt: Math.min(percent('contextWarnAt'), contextDangerAt),
+    contextDangerAt,
+    limitWarnAt: Math.min(percent('limitWarnAt'), limitDangerAt),
+    limitDangerAt,
+  }
+}
+
 export type Meter = {
   id: string
   label: string

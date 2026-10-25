@@ -23,6 +23,7 @@ import {
   hint,
   meters,
   sparkline,
+  thresholdsFrom,
   type GlyphStyle,
   type Meter,
   type Thresholds,
@@ -90,12 +91,7 @@ function toReading(
 }
 
 export const register: Register = (on, options) => {
-  const thresholds: Thresholds = {
-    contextWarnAt: Number(options.contextWarnAt ?? 60),
-    contextDangerAt: Number(options.contextDangerAt ?? 80),
-    limitWarnAt: Number(options.limitWarnAt ?? 70),
-    limitDangerAt: Number(options.limitDangerAt ?? 90),
-  }
+  const thresholds: Thresholds = thresholdsFrom(options)
   const style: GlyphStyle = options.glyphs === 'blocks' ? 'blocks' : 'boxes'
   const hasBand = options.band !== false
   const hasAlerts = options.alerts !== false
@@ -263,15 +259,15 @@ export const register: Register = (on, options) => {
     const gauge = (meter: Meter) => {
       const { filled, empty } = boxes(meter.percent, count, style)
       return [
-        <Text mono color={COLORS[meter.level]} dimColor={meter.isReset}>{filled}</Text>,
-        <Text mono dimColor>{empty}</Text>,
+        <Text key="filled" mono color={COLORS[meter.level]} dimColor={meter.isReset}>{filled}</Text>,
+        <Text key="empty" mono dimColor>{empty}</Text>,
       ]
     }
 
     return (
       <Box flexDirection="row" columnGap={3} paddingX={1}>
         {list.map(meter => (
-          <Text>
+          <Text key={meter.id}>
             <Text dimColor>{isWide ? meter.label : meter.short} </Text>
             {gauge(meter)}
             <Text

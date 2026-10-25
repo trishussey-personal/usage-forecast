@@ -64,8 +64,6 @@ claude plugin install usage-forecast --marketplace trishussey-personal/usage-for
 
 In the desktop app: click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `trishussey-personal/usage-forecast`, then **Add plugin**.
 
-If the repo is private, installs need GitHub access to it and a git credential for github.com on that machine (an SSH key, or `gh auth login` then `gh auth setup-git`).
-
 To try it from a clone without installing: `claude --plugin-dir ./usage-forecast`.
 
 ## Settings

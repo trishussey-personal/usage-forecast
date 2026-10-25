@@ -1,7 +1,18 @@
 import type { SessionMeasureInput } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { boxes, clock, hint, levelFor, meters, pace, sparkline, turnsLeft } from './gauge'
+import {
+  DEFAULT_THRESHOLDS,
+  boxes,
+  clock,
+  hint,
+  levelFor,
+  meters,
+  pace,
+  sparkline,
+  thresholdsFrom,
+  turnsLeft,
+} from './gauge'
 
 const NOW = Date.parse('2026-10-25T12:00:00Z')
 const HOUR = 3_600_000
@@ -314,4 +325,18 @@ test('a narrow pane keeps only the sparkline bars that fit', async ($, on) => {
   expect(bars).toBeDefined()
   expect(detail!.text.length + 1 + bars!.text.length).toBeLessThanOrEqual(32)
   await ui.unmount()
+})
+
+test('threshold settings that make no sense fall back or are bounded', async () => {
+  expect(thresholdsFrom({})).toEqual(DEFAULT_THRESHOLDS)
+  expect(thresholdsFrom({ contextWarnAt: 'abc', limitDangerAt: '' })).toEqual(DEFAULT_THRESHOLDS)
+  expect(thresholdsFrom({ contextWarnAt: '50', contextDangerAt: 150 })).toMatchObject({
+    contextWarnAt: 50,
+    contextDangerAt: 100,
+  })
+  // Yellow set above red: yellow drops to red's line.
+  expect(thresholdsFrom({ limitWarnAt: 95, limitDangerAt: 85 })).toMatchObject({
+    limitWarnAt: 85,
+    limitDangerAt: 85,
+  })
 })
