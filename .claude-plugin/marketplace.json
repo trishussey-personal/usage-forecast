@@ -1,0 +1,13 @@
+{
+  "name": "usage-forecast",
+  "description": "Usage gauges for Claude Code: context, 5-hour and weekly limits.",
+  "owner": {
+    "name": "Tris Hussey"
+  },
+  "plugins": [
+    {
+      "name": "usage-forecast",
+      "source": "./"
+    }
+  ]
+}
