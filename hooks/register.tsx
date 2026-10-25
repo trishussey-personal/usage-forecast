@@ -5,12 +5,14 @@
 // minute tick so the countdowns move between turns.
 // session.measure: the engine's own push after each main-thread turn and
 // whenever a rate-limit window moves a whole point; keeps the reading, the
-// context samples for turns-left, and toasts once on a turn for the worse.
+// per-turn samples for turns-left and sparklines, and toasts once on a turn
+// for the worse.
+// turn.step: notes the main thread's model and effort for the hint line.
 // ui.render (Pane): the full gauges, on every surface.
 // ui.render (AbovePrompt): one compact row, terminal and desktop.
 
 import { atom, read, update } from 'claude-code'
-import type { Register, SessionUsage } from 'claude-code'
+import type { EngineInterface, Register, SessionUsage } from 'claude-code'
 
 import type { UsageForecastReading } from '../types'
 import {
@@ -18,7 +20,9 @@ import {
   WORDS,
   boxes,
   duration,
+  hint,
   meters,
+  sparkline,
   type GlyphStyle,
   type Meter,
   type Thresholds,
@@ -34,17 +38,35 @@ const STALE_MS = 5 * 60_000
 // Change a tag when that value's fields change: it declines what an earlier
 // version stored, which outlives a reload.
 const reading = atom({ plugin: 'usage-forecast', key: 'reading' } as const, null, {
-  shape: 'reading-2',
+  shape: 'reading-3',
 })
 const samples = atom({ plugin: 'usage-forecast', key: 'samples' } as const, [], {
-  shape: 'samples-1',
+  shape: 'samples-2',
 })
 const alerted = atom({ plugin: 'usage-forecast', key: 'alerted' } as const, {}, {
   shape: 'alerted-1',
 })
+const model = atom({ plugin: 'usage-forecast', key: 'model' } as const, null, {
+  shape: 'model-1',
+})
 const tick = atom({ plugin: 'usage-forecast', key: 'tick' } as const, 0)
 
-function toReading(usage: Pick<SessionUsage, 'context' | 'rateLimits' | 'cost'>, at: number) {
+// Where auto-compact fires, from the free local /context estimate; absent
+// when it is off or the engine has no breakdown to give.
+async function compactThreshold($: EngineInterface) {
+  try {
+    const usage = await $.session.usage({ breakdown: 'summary' })
+    return usage.context.breakdown?.autoCompactThreshold
+  } catch {
+    return undefined
+  }
+}
+
+function toReading(
+  usage: Pick<SessionUsage, 'context' | 'rateLimits' | 'cost'>,
+  at: number,
+  compactAt: number | undefined,
+) {
   const { context } = usage
   const value: UsageForecastReading = {
     at,
@@ -57,6 +79,7 @@ function toReading(usage: Pick<SessionUsage, 'context' | 'rateLimits' | 'cost'>,
           }
         : null,
     ...(context.tokens ? {} : { contextPending: true }),
+    ...(compactAt ? { compactAt } : {}),
     limits: usage.rateLimits.map(({ kind, percentUsed, resetsAt }) => ({
       kind,
       percentUsed,
@@ -86,11 +109,13 @@ export const register: Register = (on, options) => {
     })
     const usage = await $.session.usage()
     const now = await $.clock.now()
-    await update($, reading, () => toReading(usage, now))
+    await update($, reading, () => toReading(usage, now, undefined))
     $.clock.every(60_000, () => {
       void update($, tick, n => n + 1)
     })
     void $.ui.open({ id: PANE, title: TITLE })
+    const compactAt = await compactThreshold($)
+    if (compactAt) await update($, reading, value => value && { ...value, compactAt })
 
     return result
   })
@@ -103,13 +128,18 @@ export const register: Register = (on, options) => {
 
   on('session.measure', async ($, e, next) => {
     const now = await $.clock.now()
-    const value = toReading(e, now)
+    // A context change is a finished turn: the moment to recount the
+    // auto-compact line and take a sample.
+    const isTurn = e.changed.includes('context')
+    const compactAt = isTurn ? await compactThreshold($) : (await read($, reading))?.compactAt
+    const value = toReading(e, now, compactAt)
     await update($, reading, () => value)
 
     const context = value.context
-    if (e.changed.includes('context') && context) {
+    if (isTurn && context) {
+      const limits = Object.fromEntries(value.limits.map(one => [one.kind, one.percentUsed]))
       await update($, samples, list =>
-        [...list, { at: now, tokens: context.tokens }].slice(-SAMPLES),
+        [...list, { at: now, tokens: context.tokens, window: context.window, limits }].slice(-SAMPLES),
       )
     }
 
@@ -131,6 +161,22 @@ export const register: Register = (on, options) => {
     await update($, alerted, () => fresh)
 
     return next(e)
+  })
+
+  // Streams: the one form that loads is a generator forwarding the stream.
+  // Noted after the request, off its latency path; never rewritten.
+  on('turn.step', async function* ($, e, next) {
+    const result = yield* next(e)
+    if (e.agentId === undefined && e.index === 0) {
+      const seen = await read($, model)
+      if (seen?.model !== e.model || seen?.effort !== e.effort) {
+        await update($, model, () => ({
+          model: e.model,
+          ...(e.effort === undefined ? {} : { effort: e.effort }),
+        }))
+      }
+    }
+    return result
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -156,6 +202,13 @@ export const register: Register = (on, options) => {
       )
     }
     const age = now - value.at
+    const advice = hint(list, await read($, model), now)
+    // As many of the latest bars as fit beside the detail; none under three.
+    const width = e.props.bodyColumns - 2
+    const spark = (meter: Meter) => {
+      const room = width - meter.detail.length - 1
+      return room >= 3 ? sparkline(meter.trend.slice(-room)) : ''
+    }
 
     return (
       <Box flexDirection="column" paddingX={1}>
@@ -173,14 +226,21 @@ export const register: Register = (on, options) => {
               )}
             </Box>
             {gauge(meter)}
-            {meter.detail !== '' && <Text dimColor>{meter.detail}</Text>}
+            {(meter.detail !== '' || meter.trend.length > 1) && (
+              <Box flexDirection="row" justifyContent="space-between" columnGap={1}>
+                <Text dimColor>{meter.detail}</Text>
+                <Text mono dimColor>{spark(meter)}</Text>
+              </Box>
+            )}
             {meter.forecast && (
               <Text color={meter.level === 'ok' ? undefined : COLORS[meter.level]} dimColor={meter.level === 'ok'}>
                 {meter.forecast}
               </Text>
             )}
+            {meter.turnsNote && <Text dimColor>{meter.turnsNote}</Text>}
           </Box>
         ))}
+        {advice && <Text dimColor>{advice}</Text>}
         {value.costUsd !== undefined && (
           <Text dimColor>This session: ${value.costUsd.toFixed(2)}</Text>
         )}

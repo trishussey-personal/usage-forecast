@@ -1,7 +1,7 @@
 import type { SessionMeasureInput } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { boxes, levelFor, pace, turnsLeft } from './gauge'
+import { boxes, clock, hint, levelFor, meters, pace, sparkline, turnsLeft } from './gauge'
 
 const NOW = Date.parse('2026-10-25T12:00:00Z')
 const HOUR = 3_600_000
@@ -190,8 +190,128 @@ test('the gauge math', async () => {
   })
 
   // 10k a turn from 100k toward 200k; a compaction starts the count over.
-  const at = NOW
-  expect(turnsLeft([100, 110, 120].map(k => ({ at, tokens: k * 1000 })), 200_000)).toBe(8)
-  expect(turnsLeft([150, 160, 40, 50].map(k => ({ at, tokens: k * 1000 })), 200_000)).toBe(15)
-  expect(turnsLeft([{ at, tokens: 1000 }], 200_000)).toBeNull()
+  expect(turnsLeft([100, 110, 120].map(k => k * 1000), 200_000)).toBe(8)
+  expect(turnsLeft([150, 160, 40, 50].map(k => k * 1000), 200_000)).toBe(15)
+  expect(turnsLeft([1000], 200_000)).toBeNull()
+})
+
+const T = { contextWarnAt: 60, contextDangerAt: 80, limitWarnAt: 70, limitDangerAt: 90 }
+
+test('each turn adds a sample: turns left, sparklines and reset clock times', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  on('ui.toast', () => ({ value: undefined }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  const at = (percent: number, tokens: number): SessionMeasureInput => ({
+    ...MEASURE,
+    context: { tokens, window: 200_000, percent: Math.round(tokens / 2000) },
+    rateLimits: [
+      { kind: 'five_hour', percentUsed: percent, resetsAt: new Date(NOW + 2 * HOUR).toISOString() },
+    ],
+    changed: ['context', 'rateLimits'],
+  })
+  await $.session.measure(at(40, 100_000))
+  await $.session.measure(at(44, 110_000))
+  await $.session.measure(at(48, 120_000))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  // 4 points a turn from 48%: 13 turns to 100.
+  expect(await ui.find({ type: 'Text', text: /~13 turns left/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /resets in 2h 0m · \d{1,2}:\d\d(am|pm)$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^▁▅█$/ })).toBeDefined()
+  // The pace forecast stays as it was; turns left is its own line.
+  expect(await ui.find({ type: 'Text', text: /^On pace for ~\d+% at reset$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the gauge additions', async () => {
+  expect(sparkline([1])).toBe('')
+  expect(sparkline([10, 10, 10])).toBe('▁▁▁')
+  expect(sparkline([0, 50, 100])).toBe('▁▅█')
+  // A one-point step draws small.
+  expect(sparkline([40, 40, 40, 41])).toBe('▁▁▁▂')
+
+  expect(clock(NOW + HOUR, NOW)).toMatch(/^\d{1,2}:\d\d(am|pm)$/)
+  expect(clock(NOW + 72 * HOUR, NOW)).toMatch(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2}:\d\d(am|pm)$/)
+
+  // Auto-compact at 160k of a 200k window: count toward 160k, not 200k.
+  const samples = [100, 110, 120].map(k => ({ at: NOW, tokens: k * 1000, window: 200_000 }))
+  const reading = {
+    at: NOW,
+    context: { tokens: 120_000, window: 200_000, percent: 60 },
+    compactAt: 160_000,
+    limits: [],
+  }
+  const [context] = meters(reading, samples, NOW, T)
+  expect(context!.forecast).toBe('~4 turns until auto-compact')
+  expect(context!.trend).toEqual([50, 55, 60])
+})
+
+test('the hint line', async () => {
+  const limit = (percent: number, resetIn: number, extra = {}) => ({
+    at: NOW,
+    context: null,
+    limits: [
+      { kind: 'five_hour', percentUsed: percent, resetsAt: new Date(NOW + resetIn).toISOString() },
+    ],
+    ...extra,
+  })
+  const tight = [80, 85, 90].map(p => ({ at: NOW, tokens: 1, limits: { five_hour: p } }))
+  const list = meters(limit(90, 2 * HOUR), tight, NOW, T)
+
+  expect(hint(list, { model: 'claude-opus-5-5', effort: 'high' }, NOW)).toMatch(
+    /^5-hour tight until .* · try lower effort \(high\)$/,
+  )
+  expect(hint(list, { model: 'claude-opus-5-5', effort: 'low' }, NOW)).toMatch(/· try Sonnet$/)
+  expect(hint(list, { model: 'claude-haiku-5-5' }, NOW)).toMatch(/· try lower effort$/)
+
+  // Low use with the reset under an hour away.
+  expect(hint(meters(limit(20, 30 * 60_000), [], NOW, T), null, NOW)).toMatch(/^Room to spare before the /)
+  // Comfortable and nothing close: no line.
+  expect(hint(meters(limit(20, 3 * HOUR), [], NOW, T), null, NOW)).toBeUndefined()
+
+  const near = [140, 145, 150].map(k => ({ at: NOW, tokens: k * 1000, window: 200_000 }))
+  const ctx = meters(
+    { at: NOW, context: { tokens: 150_000, window: 200_000, percent: 75 }, compactAt: 160_000, limits: [] },
+    near,
+    NOW,
+    T,
+  )
+  expect(hint(ctx, null, NOW)).toBe('Compacts in ~2 turns · /compact or /clear')
+})
+
+test('limit turns left counts from the figure now, and hides past 50', async () => {
+  const reading = (percent: number) => ({
+    at: NOW,
+    context: null,
+    limits: [
+      { kind: 'five_hour', percentUsed: percent, resetsAt: new Date(NOW + 2 * HOUR).toISOString() },
+    ],
+  })
+  const run = [40, 44, 48].map(p => ({ at: NOW, tokens: 1, limits: { five_hour: p } }))
+  // Another session took it to 60% since the last turn: 4 a turn from 60.
+  expect(meters(reading(60), run, NOW, T)[0]!.turnsNote).toBe('~10 turns left')
+  const slow = [30, 30, 30, 30, 30, 31].map(p => ({ at: NOW, tokens: 1, limits: { five_hour: p } }))
+  expect(meters(reading(31), slow, NOW, T)[0]!.turnsNote).toBeUndefined()
+})
+
+test('a narrow pane keeps only the sparkline bars that fit', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  on('ui.toast', () => ({ value: undefined }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  for (let i = 0; i < 12; i++) {
+    await $.session.measure({
+      ...MEASURE,
+      rateLimits: [
+        { kind: 'seven_day', percentUsed: 10 + i, resetsAt: new Date(NOW + 96 * HOUR).toISOString() },
+      ],
+      changed: ['context', 'rateLimits'],
+    })
+  }
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop', props: { ...PANE.props, bodyColumns: 34 } })
+  const detail = await ui.find({ type: 'Text', text: /^resets in / })
+  // The weekly bars rise; the context ones are flat.
+  const bars = await ui.find({ type: 'Text', text: /^[▁▂▃▄▅▆▇█]*[▂▃▄▅▆▇█][▁▂▃▄▅▆▇█]*$/ })
+  expect(bars).toBeDefined()
+  expect(detail!.text.length + 1 + bars!.text.length).toBeLessThanOrEqual(32)
+  await ui.unmount()
 })
