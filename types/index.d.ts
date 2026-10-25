@@ -14,7 +14,6 @@ export type UsageForecastReading = {
   // The token count at which auto-compaction runs; absent when it is off.
   compactAt?: number
   limits: UsageForecastLimit[]
-  costUsd?: number
 }
 
 // Context tokens and each window's percent used after each main-thread turn,

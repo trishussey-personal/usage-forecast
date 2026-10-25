@@ -71,7 +71,7 @@ test('the pane shows three gauges with colors and forecasts, on every surface', 
     expect((await ui.find({ type: 'Text', text: /^72% / }))?.text).toBe('72% Watch')
     expect(await ui.find({ type: 'Text', text: /Runs out in .* before reset/ })).toBeDefined()
 
-    expect(await ui.find({ type: 'Text', text: /\$1\.50/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /This session|\$\d/ })).toBeUndefined()
     await ui.unmount()
   }
 

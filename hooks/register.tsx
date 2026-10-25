@@ -38,7 +38,7 @@ const STALE_MS = 5 * 60_000
 // Change a tag when that value's fields change: it declines what an earlier
 // version stored, which outlives a reload.
 const reading = atom({ plugin: 'usage-forecast', key: 'reading' } as const, null, {
-  shape: 'reading-3',
+  shape: 'reading-4',
 })
 const samples = atom({ plugin: 'usage-forecast', key: 'samples' } as const, [], {
   shape: 'samples-2',
@@ -63,7 +63,7 @@ async function compactThreshold($: EngineInterface) {
 }
 
 function toReading(
-  usage: Pick<SessionUsage, 'context' | 'rateLimits' | 'cost'>,
+  usage: Pick<SessionUsage, 'context' | 'rateLimits'>,
   at: number,
   compactAt: number | undefined,
 ) {
@@ -85,7 +85,6 @@ function toReading(
       percentUsed,
       ...(resetsAt ? { resetsAt } : {}),
     })),
-    ...(usage.cost ? { costUsd: usage.cost.usd } : {}),
   }
   return value
 }
@@ -241,9 +240,6 @@ export const register: Register = (on, options) => {
           </Box>
         ))}
         {advice && <Text dimColor>{advice}</Text>}
-        {value.costUsd !== undefined && (
-          <Text dimColor>This session: ${value.costUsd.toFixed(2)}</Text>
-        )}
         {age >= STALE_MS && (
           <Text dimColor>As of {duration(age)} ago. Other sessions may have used more since.</Text>
         )}
