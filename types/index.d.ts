@@ -11,12 +11,23 @@ export type UsageForecastReading = {
   context: { tokens: number; window: number; percent: number } | null
   // No context tokens counted yet: the gauge is drawn empty until the next reply.
   contextPending?: boolean
+  // The token count at which auto-compaction runs; absent when it is off.
+  compactAt?: number
   limits: UsageForecastLimit[]
   costUsd?: number
 }
 
-// Context tokens after each main-thread turn, oldest first, for turns-left.
-export type UsageForecastSample = { at: number; tokens: number }
+// Context tokens and each window's percent used after each main-thread turn,
+// oldest first, for turns-left and the sparklines.
+export type UsageForecastSample = {
+  at: number
+  tokens: number
+  window?: number
+  limits?: Record<string, number>
+}
+
+// The model and effort of the main thread's last request, for the hint line.
+export type UsageForecastModel = { model: string; effort?: string | number }
 
 declare module 'claude-code' {
   interface PluginState {
@@ -25,6 +36,7 @@ declare module 'claude-code' {
       samples: Shaped<UsageForecastSample[]>
       // Meter id -> the level@reset already announced, so a toast fires once.
       alerted: Shaped<Record<string, string>>
+      model: Shaped<UsageForecastModel | null>
       // Bumped once a minute so countdowns redraw between turns.
       tick: number
     }

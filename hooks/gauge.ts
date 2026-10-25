@@ -2,6 +2,7 @@
 
 import type {
   UsageForecastLimit,
+  UsageForecastModel,
   UsageForecastReading,
   UsageForecastSample,
 } from '../types'
@@ -29,6 +30,18 @@ export type Meter = {
   detail: string
   // "~9 turns left", "on pace for ~58% at reset", "runs out in 1h 10m ...".
   forecast?: string
+  // Percent at each recent turn, oldest first, for the sparkline.
+  trend: number[]
+  // Turns until the window fills (or context auto-compacts), at recent pace.
+  turnsLeft?: number
+  // "~15 turns left" for a limit, drawn beside the forecast but kept out of
+  // toasts; context says it in its forecast.
+  turnsNote?: string
+  // Context counts toward the auto-compact line, not the full window.
+  compacts?: boolean
+  // The straight-line pace runs the window out before it resets.
+  runsOut?: boolean
+  resetsAt?: number
 }
 
 const HOUR = 3_600_000
@@ -96,6 +109,33 @@ export function duration(ms: number): string {
   return `${Math.floor(hours / 24)}d ${hours % 24}h`
 }
 
+// A reset as a wall-clock time in the runtime's local zone: "4:42pm" within
+// the day, "Fri 9:00am" further out.
+export function clock(at: number, now: number): string {
+  const date = new Date(at)
+  const hours = date.getHours()
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  const time = `${hours % 12 || 12}:${minutes}${hours < 12 ? 'am' : 'pm'}`
+  if (at - now < 20 * HOUR) return time
+  return `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()]} ${time}`
+}
+
+const SPARKS = '▁▂▃▄▅▆▇█'
+
+// Recent percentages as one bar each, scaled to their own range so a slow
+// climb still shows, but over at least MIN_SPAN points so a one-point step
+// (limits move in whole points) draws small; flat when nothing moved.
+const MIN_SPAN = 5
+
+export function sparkline(values: number[]): string {
+  if (values.length < 2) return ''
+  const low = Math.min(...values)
+  const span = Math.max(Math.max(...values) - low, MIN_SPAN)
+  return values
+    .map(v => SPARKS[Math.round(((v - low) / span) * (SPARKS.length - 1))])
+    .join('')
+}
+
 export function tokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
   if (n >= 1_000) return `${Math.round(n / 1_000)}k`
@@ -119,26 +159,39 @@ export function pace(percent: number, resetsAt: number, lengthMs: number, now: n
   }
 }
 
-// Turns left before the window fills, from the average growth of the turns
-// since the last drop (a compaction or /clear starts the count over).
-export function turnsLeft(samples: UsageForecastSample[], window: number): number | null {
+// Turns left before a value reaches its ceiling, from the average growth of
+// the turns since the last drop (a compaction, /clear or a reset starts the
+// count over).
+// `current` is the figure now, when newer than the last sample (another
+// session spends the same limit windows between this one's turns).
+export function turnsLeft(values: number[], ceiling: number, current?: number): number | null {
   let start = 0
-  for (let i = 1; i < samples.length; i++) {
-    if (samples[i]!.tokens < samples[i - 1]!.tokens) start = i
+  for (let i = 1; i < values.length; i++) {
+    if (values[i]! < values[i - 1]!) start = i
   }
-  const run = samples.slice(start)
+  const run = values.slice(start)
   if (run.length < 2) return null
-  const growth = (run[run.length - 1]!.tokens - run[0]!.tokens) / (run.length - 1)
+  const growth = (run[run.length - 1]! - run[0]!) / (run.length - 1)
   if (growth <= 0) return null
-  return Math.max(0, Math.floor((window - run[run.length - 1]!.tokens) / growth))
+  const now = Math.max(current ?? run[run.length - 1]!, run[run.length - 1]!)
+  return Math.max(0, Math.floor((ceiling - now) / growth))
 }
+
+const turns = (n: number) => `~${n} turn${n === 1 ? '' : 's'}`
 
 function contextMeter(
   context: NonNullable<UsageForecastReading['context']>,
+  compactAt: number | undefined,
   samples: UsageForecastSample[],
   t: Thresholds,
 ): Meter {
-  const left = turnsLeft(samples, context.window)
+  // Auto-compact fires before the window is full: count toward that line.
+  const ceiling = compactAt && compactAt < context.window ? compactAt : context.window
+  const left = turnsLeft(
+    samples.map(one => one.tokens),
+    ceiling,
+  )
+  const until = ceiling === context.window ? 'left at this pace' : 'until auto-compact'
   return {
     id: 'context',
     label: 'Context',
@@ -147,11 +200,24 @@ function contextMeter(
     level: levelFor(context.percent, t.contextWarnAt, t.contextDangerAt),
     isReset: false,
     detail: `${tokens(context.tokens)} / ${tokens(context.window)}`,
-    forecast: left === null ? undefined : `~${left} turn${left === 1 ? '' : 's'} left at this pace`,
+    forecast: left === null ? undefined : `${turns(left)} ${until}`,
+    trend: samples
+      .filter(one => one.window)
+      .map(one => Math.round((one.tokens / one.window!) * 100)),
+    ...(left === null ? {} : { turnsLeft: left }),
+    ...(ceiling === context.window ? {} : { compacts: true }),
   }
 }
 
-function limitMeter(limit: UsageForecastLimit, now: number, t: Thresholds): Meter {
+// Past this many turns the estimate is noise from whole-point steps.
+const MAX_TURNS = 50
+
+function limitMeter(
+  limit: UsageForecastLimit,
+  samples: UsageForecastSample[],
+  now: number,
+  t: Thresholds,
+): Meter {
   const known = WINDOWS[limit.kind]
   const resetsAt = limit.resetsAt ? Date.parse(limit.resetsAt) : NaN
   const hasReset = Number.isFinite(resetsAt)
@@ -159,6 +225,12 @@ function limitMeter(limit: UsageForecastLimit, now: number, t: Thresholds): Mete
   const percent = isReset ? 0 : limit.percentUsed
   let level = levelFor(percent, t.limitWarnAt, t.limitDangerAt)
   let forecast: string | undefined
+  let runsOut = false
+  const trend = samples
+    .map(one => one.limits?.[limit.kind])
+    .filter((v): v is number => v !== undefined)
+  const counted = isReset || percent >= 100 ? null : turnsLeft(trend, 100, percent)
+  const left = counted !== null && counted <= MAX_TURNS ? counted : null
 
   if (isReset) {
     forecast = 'Window reset; your next turn refreshes it'
@@ -168,6 +240,7 @@ function limitMeter(limit: UsageForecastLimit, now: number, t: Thresholds): Mete
     const p = pace(percent, resetsAt, known.lengthMs, now)
     if (p?.runsOutIn != null) {
       level = worse(level, 'warn')
+      runsOut = true
       forecast = `Runs out in ${duration(p.runsOutIn)}, ${duration(p.remaining - p.runsOutIn)} before reset`
     } else if (p) {
       forecast = `On pace for ~${p.projected}% at reset`
@@ -181,8 +254,16 @@ function limitMeter(limit: UsageForecastLimit, now: number, t: Thresholds): Mete
     percent,
     level,
     isReset,
-    detail: isReset ? 'reset' : hasReset ? `resets in ${duration(resetsAt - now)}` : '',
+    detail: isReset
+      ? 'reset'
+      : hasReset
+        ? `resets in ${duration(resetsAt - now)} · ${clock(resetsAt, now)}`
+        : '',
     forecast,
+    trend,
+    ...(left === null ? {} : { turnsLeft: left, turnsNote: `${turns(left)} left` }),
+    ...(runsOut ? { runsOut } : {}),
+    ...(hasReset ? { resetsAt } : {}),
   }
 }
 
@@ -200,6 +281,7 @@ function pendingContext(): Meter {
     isReset: false,
     isPending: true,
     detail: 'Fills after the next reply',
+    trend: [],
   }
 }
 
@@ -213,9 +295,45 @@ export function meters(
   t: Thresholds,
 ): Meter[] {
   const list: Meter[] = []
-  if (reading.context) list.push(contextMeter(reading.context, samples, t))
+  if (reading.context) list.push(contextMeter(reading.context, reading.compactAt, samples, t))
   else if (reading.contextPending) list.push(pendingContext())
-  for (const limit of reading.limits) list.push(limitMeter(limit, now, t))
+  for (const limit of reading.limits) list.push(limitMeter(limit, samples, now, t))
   const rank = (id: string) => (ORDER.includes(id) ? ORDER.indexOf(id) : ORDER.length)
   return list.sort((a, b) => rank(a.id) - rank(b.id))
+}
+
+// A turn or two left, or a pace that runs out: worth a nudge.
+const TIGHT_TURNS = 5
+const HIGH_EFFORT = ['high', 'xhigh', 'max']
+
+// One line of advice from the gauges, or none: pressure on a limit first,
+// then context near auto-compact, then room to spare before a reset.
+export function hint(list: Meter[], model: UsageForecastModel | null, now: number): string | undefined {
+  const limits = list.filter(one => one.id !== 'context' && !one.isReset && one.resetsAt)
+  const tight = limits.find(
+    one => one.runsOut || (one.turnsLeft !== undefined && one.turnsLeft <= TIGHT_TURNS),
+  )
+  if (tight) {
+    const effort = model?.effort
+    const lever =
+      typeof effort === 'string' && HIGH_EFFORT.includes(effort)
+        ? `lower effort (${effort})`
+        : model && /opus/i.test(model.model)
+          ? 'Sonnet'
+          : model && /sonnet/i.test(model.model)
+            ? 'Haiku for simple steps'
+            : 'lower effort'
+    return `${tight.label} tight until ${clock(tight.resetsAt!, now)} · try ${lever}`
+  }
+
+  const context = list.find(one => one.id === 'context')
+  if (context?.compacts && context.turnsLeft !== undefined && context.turnsLeft <= 3) {
+    return `Compacts in ${turns(context.turnsLeft)} · /compact or /clear`
+  }
+
+  const soon = limits.find(one => one.id === 'five_hour' && one.resetsAt! - now <= HOUR)
+  if (soon && limits.every(one => one.percent < 50)) {
+    return `Room to spare before the ${clock(soon.resetsAt!, now)} reset`
+  }
+  return undefined
 }
