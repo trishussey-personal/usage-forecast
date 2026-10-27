@@ -32,6 +32,7 @@ Fixed locations:
 - Before calling a change done, run `claude plugin validate .` and `claude plugin test .`.
 - When you add or change a setting in `plugin.json` `userConfig`, update the Settings table in `README.md` too.
 - When the user sees behavior the code no longer has, compare ~/.claude/plugins/cache/usage-forecast/usage-forecast/<version>/ with the repo before touching any code. The usual cause is an installed copy saved under an unchanged version number.
+- Before using a status line JSON field, capture one real input and read it rather than guessing field names. Delete the capture afterwards.
 
 ## Capabilities
 
@@ -45,3 +46,5 @@ Fixed locations:
 - 2026-10-25: Don't run `claude plugin marketplace update` / `claude plugin update` from Bash: the sandbox denies writes to ~/.claude/plugins. Hand the user both commands instead.
 - 2026-10-25: Auto mode blocks `git branch -d` and `git push --delete`, even for branches merged into main. Give the user the delete commands instead.
 - 2026-10-25: When parsing a `userConfig` value, accept only a real number or a non-blank numeric string. `Number()` turns `'  '`, `false` and `[50]` into numbers, so a plain `Number(x)` with a NaN check let a blank setting through as 0.
+- 2026-10-26: "Settings below the prompt box" meant the user's status line (`~/.claude/statusline.sh`, wired in `~/.claude/settings.json`), not this plugin. The plugin's band sits above the prompt and its settings are in `/config`.
+- 2026-10-26: To capture the JSON a status line script receives, write it to `$HOME/.claude/statusline-input.json`. `/private/tmp/claude` and `~/.claude/debug` don't exist, so writes there fail silently. The capture appears after a tool call or two, and deleting it needs the sandbox off. Fields seen: `effort.level`, `session_name`, `workspace.repo`, `fast_mode`, `prompt_cache`, `rate_limits.*.resets_at`, `cost.*`, `context_window.used_percentage`.
